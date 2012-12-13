@@ -28,11 +28,12 @@
    :instance (re-find #"(?<=:)\w*" s)})
 
 (defn find-tokens [text]
-  (let [token-strs (re-seq #"(?<=\?)[\w:-]*" text)]
-    (set (map to-token token-strs))))
+  (let [token-strs (re-seq #"(?<=\?)[\w:-]*" text)
+        tokens (map to-token token-strs)]
+    (zipmap (map token-key tokens)
+            tokens)))
 
 (defn token-coll [{:keys [id]}]
-  (prn id)
   @(resolve (symbol id)))
 
 (defn token-key [{:keys [id instance]}]
@@ -41,26 +42,37 @@
 (defn token-str [{:keys [id instance]}]
   (str "?" id (if instance (str ":" instance))))
 
+(defn new-tokens-in-text [text context]
+  (let [all-tokens (find-tokens text)
+        new-keys (remove (set (keys context)) (keys all-tokens))]
+    (select-keys all-tokens new-keys)))
+
 (declare random-selection)
 
-(defn add-token-to-context [context token]
-  (let [k (token-key token)
-        v (:value (context k))]
-    ; this is wrong
-    ; need to add the value to the token, then assoc into the context
-    (assoc context k
-           (assoc token :value
-                  (or v (random-selection (token-coll token) context))))))
+(defn add-to-token-context [context token]
+  (let [new-key (token-key token)]
+    (if (contains? context new-key)
+      context
+      (let [{:keys [text context]} (random-selection (token-coll token) context)]
+        (assoc context new-key
+               (assoc token :value text))))))
+
+(defn substitute-from-tokens [text token]
+  (let [value (:value token)]
+    (string/replace text (token-str token) value)))
 
 (defn random-selection
   ([coll] (random-selection coll {}))
-  ([coll context]
-     (let [text (rand-nth coll)
-           new-tokens (find-tokens text)
-           tokens (reduce add-token-to-context {} new-tokens)]
-       (reduce #(string/replace %1 (token-str %2) (:value %2)) text (vals tokens)))))
+  ([coll token-context]
+    (let [text (rand-nth coll)
+          new-tokens (new-tokens-in-text text token-context)
+          new-context (reduce add-to-token-context token-context (vals new-tokens))]
+      {:text (reduce substitute-from-tokens text (vals new-context))
+       :context new-context})))
 
 (defn generate-story [id]
   (let [randomizer (java.util.Random. id)]
     (with-redefs [rand-int (fn [i] (.nextInt randomizer i))]
-      (random-selection story-templates))))
+      (:text (random-selection story-templates)))))
+
+(generate-story 1)
