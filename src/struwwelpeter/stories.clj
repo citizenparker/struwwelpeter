@@ -9,32 +9,26 @@
 (defn new-story-id []
   (rand-int Integer/MAX_VALUE))
 
-(def story-templates
+(def story-template
   [
    ;"a ?main-character who does not ?positive-action is consequently ?negative-condition."
-   "a ?naughty-descriptor ?main-character ?naughty-behavior. Eventually ?main-character(he) is ?consequence-condition by ?consequence-actor, who ?consequence-action while ?main-character(he) is ?consequence-condition:2."
+   {:text "a ?naughty-descriptor ?main-character ?naughty-behavior. Eventually he is ?consequence-condition by ?consequence-actor, who ?consequence-action while ?main-character (actually he) is ?consequence-condition:2."}
    ])
 
-(def main-character [{:name "boy" :pronoun "he"} {:name "girl" :pronoun "she"}])
-(def positive-action ["brush teeth" "lap hands"])
-(def consequence-condition ["unpopular" "bedridden" "bitten"])
-(def consequence-action ["eats the ?main-character's sausage"])
-(def naughty-behavior ["terrorizes animals and people"])
-(def naughty-descriptor ["violent"])
-(def consequence-actor ["a dog"])
+(def main-character [{:text "boy"} {:text "girl"}])
+(def positive-action [{:text "brush teeth"} {:text "lap hands"}])
+(def consequence-condition [{:text "unpopular"} {:text "bedridden"} {:text "bitten"}])
+(def consequence-action [{:text "eats the ?main-character's sausage"}])
+(def naughty-behavior [{:text "terrorizes animals and people"}])
+(def naughty-descriptor [{:text "violent"}])
+(def consequence-actor [{:text "a dog"}])
 
 (defn to-token [s]
-  {:id (re-find #"^[\w-]*" s)
+  {:category (re-find #"^[\w-]*" s)
    :instance (re-find #"(?<=:)\w*" s)})
 
-(defn token-coll [{:keys [id]}]
-  @(resolve (symbol id)))
-
-(defn token-key [{:keys [id instance]}]
-  (str id instance))
-
-(defn token-str [{:keys [id instance]}]
-  (str "?" id (if instance (str ":" instance))))
+(defn token-key [{:keys [category instance]}]
+  (str category instance))
 
 (defn find-tokens [text]
   (let [token-strs (re-seq #"(?<=\?)[\w:-]*" text)
@@ -42,43 +36,45 @@
     (zipmap (map token-key tokens)
             tokens)))
 
-(defn new-tokens-in-text [text context]
-  (let [all-tokens (find-tokens text)
-        new-keys (remove (set (keys context)) (keys all-tokens))]
-    (select-keys all-tokens new-keys)))
+(defn token-coll [{:keys [category]}]
+  @(resolve (symbol category)))
 
-(declare random-selection)
+(defn token-str [{:keys [category instance]}]
+  (str "?" category (if instance (str ":" instance))))
+
+(declare replace-tokens)
 
 (defn add-to-token-context [context token]
   (let [new-key (token-key token)]
     (if (contains? context new-key)
       context
-      (let [{:keys [text context]} (random-selection (token-coll token) context)]
+      (let [new-value (rand-nth (token-coll token))
+            {:keys [text context] :as result} (replace-tokens new-value context)]
         (assoc context new-key
-               (assoc token :value text))))))
+               (assoc token :text text))))))
 
-(defn substitute-from-tokens [text token]
-  (let [value (:value token)]
-    (string/replace text (token-str token) value)))
+(defn new-tokens-in-token [token token-context]
+  (let [all-tokens (find-tokens (:text token))
+        new-keys (remove (set (keys token-context)) (keys all-tokens))]
+    (select-keys all-tokens new-keys)))
 
-(defn random-item [coll]
-  (let [item (rand-nth coll)]
-    (if (map? item)
-      (:name item)
-      item)))
+(defn substitute-from-tokens [current-text token]
+  (string/replace
+    current-text
+    (token-str token)
+    (:text token)))
 
-(defn random-selection
-  ([coll] (random-selection coll {}))
-  ([coll token-context]
-    (let [text (random-item coll)
-          new-tokens (new-tokens-in-text text token-context)
+(defn replace-tokens
+  ([token] (replace-tokens token {}))
+  ([token token-context]
+    (let [new-tokens (new-tokens-in-token token token-context)
           new-context (reduce add-to-token-context token-context (vals new-tokens))]
-      {:text (reduce substitute-from-tokens text (vals new-context))
+      {:text (reduce substitute-from-tokens (:text token) (vals new-context))
        :context new-context})))
 
 (defn generate-story [id]
   (let [randomizer (java.util.Random. id)]
     (with-redefs [rand-int (fn [i] (.nextInt randomizer i))]
-      (:text (random-selection story-templates)))))
+      (replace-tokens {:text "?story-template"}))))
 
 (generate-story 1)
