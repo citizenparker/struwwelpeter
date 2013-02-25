@@ -12,16 +12,19 @@
 (def story-template
   [
    ;"a ?main-character who does not ?positive-action is consequently ?negative-condition."
-   {:text "a ?naughty-descriptor ?main-character ?naughty-behavior. Eventually he is ?consequence-condition by ?consequence-actor, who ?consequence-action while ?main-character (actually he) is ?consequence-condition:2."}
+   {:text "a ?naughty-descriptor ?main-character ?naughty-behavior. Eventually ?main-character(pronoun) is ?consequence-condition by ?consequence-actor, who ?consequence-action while ?main-character(pronoun) is ?consequence-condition:2."}
    ])
 
-(def main-character [{:text "boy"} {:text "girl"}])
-(def positive-action [{:text "brush teeth"} {:text "lap hands"}])
+(def main-character [{:text "boy" :pronoun "he"} {:text "girl"}])
+(def positive-action [{:text "brush teeth"} {:text "clap hands"}])
 (def consequence-condition [{:text "unpopular"} {:text "bedridden"} {:text "bitten"}])
 (def consequence-action [{:text "eats the ?main-character's sausage"}])
 (def naughty-behavior [{:text "terrorizes animals and people"}])
 (def naughty-descriptor [{:text "violent"}])
 (def consequence-actor [{:text "a dog"}])
+
+(def reserved-keys
+  #{:keys :context :category :instance})
 
 (defn to-token [s]
   {:category (re-find #"^[\w-]*" s)
@@ -31,7 +34,7 @@
   (str category instance))
 
 (defn find-tokens [text]
-  (let [token-strs (re-seq #"(?<=\?)[\w:-]*" text)
+  (let [token-strs (re-seq #"(?<=\?)[\w:\-()]*" text)
         tokens (map to-token token-strs)]
     (zipmap (map token-key tokens)
             tokens)))
@@ -39,8 +42,18 @@
 (defn token-coll [{:keys [category]}]
   @(resolve (symbol category)))
 
-(defn token-str [{:keys [category instance]}]
-  (str "?" category (if instance (str ":" instance))))
+(defn token-replacement [token & [k]]
+  (let [text-key (or k :text)
+        {:keys [category instance]} token]
+    {:match (str "?" category
+                 (when instance (str ":" instance))
+                 (when k (str "(" (name k) ")")))
+     :replacement (text-key token)}))
+
+(defn replacement-pairs [token]
+  (let [ks (remove reserved-keys (keys token))]
+    (concat (map #(token-replacement token %) ks)
+            [(token-replacement token)])))
 
 (declare replace-tokens)
 
@@ -49,9 +62,9 @@
     (if (contains? context new-key)
       context
       (let [new-value (rand-nth (token-coll token))
-            {:keys [text context] :as result} (replace-tokens new-value context)]
-        (assoc context new-key
-               (assoc token :text text))))))
+            {:keys [text context]} (replace-tokens new-value context)
+            new-token (merge token new-value {:text text})]
+        (assoc context new-key new-token)))))
 
 (defn new-tokens-in-token [token token-context]
   (let [all-tokens (find-tokens (:text token))
@@ -59,10 +72,8 @@
     (select-keys all-tokens new-keys)))
 
 (defn substitute-from-tokens [current-text token]
-  (string/replace
-    current-text
-    (token-str token)
-    (:text token)))
+  (let [pairs (replacement-pairs token)]
+    (reduce #(string/replace %1 (:match %2) (:replacement %2)) current-text pairs)))
 
 (defn replace-tokens
   ([token] (replace-tokens token {}))
